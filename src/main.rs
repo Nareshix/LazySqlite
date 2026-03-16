@@ -2,10 +2,12 @@ use arboard::Clipboard;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem},
 };
 use ratatui_textarea::{CursorMove, Input, Key, TextArea};
+mod autocomplete;
+use autocomplete::{Autocomplete, current_word, popup_rect};
 
 #[derive(PartialEq)]
 enum Focus {
@@ -31,7 +33,18 @@ fn main() -> std::io::Result<()> {
     let mut textarea = TextArea::default();
     textarea.set_block(Block::default().title(" Box 2 ").borders(Borders::ALL));
     let mut clipboard = Clipboard::new().unwrap();
-
+    let mut ac = Autocomplete::new(vec![
+        "SELECT".into(),
+        "FROM".into(),
+        "WHERE".into(),
+        "INSERT".into(),
+        "UPDATE".into(),
+        "DELETE".into(),
+        "CREATE".into(),
+        "DROP".into(),
+        "ALTER".into(),
+        "INDEX".into(),
+    ]);
     loop {
         terminal.draw(|frame| {
             let area = frame.area();
@@ -89,6 +102,33 @@ fn main() -> std::io::Result<()> {
             frame.render_widget(box1, cols[0]); // big box on left
             frame.render_widget(&textarea, rows[0]); // top-right, textarea
             frame.render_widget(box3, rows[1]); // bottom-right
+            if ac.visible {
+                let (row, col) = textarea.cursor();
+                let popup = popup_rect(rows[0], row, col);
+
+                let items: Vec<ListItem> = ac
+                    .matches
+                    .iter()
+                    .map(|m| ListItem::new(m.as_str()))
+                    .collect();
+
+                let list = List::new(items)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Autocomplete "),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::Blue)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("▶ ");
+
+                // Clear the area first so it draws over textarea cleanly
+                frame.render_widget(ratatui::widgets::Clear, popup);
+                frame.render_stateful_widget(list, popup, &mut ac.state);
+            }
         })?;
 
         if let Event::Key(key) = event::read()?
@@ -102,6 +142,30 @@ fn main() -> std::io::Result<()> {
                 _ => {
                     if focus == Focus::Box2 {
                         match Input::from(key) {
+                            Input { key: Key::Down, .. } if ac.visible => {
+                                ac.next();
+                            }
+                            Input { key: Key::Up, .. } if ac.visible => {
+                                ac.prev();
+                            }
+                            Input { key: Key::Esc, .. } if ac.visible => {
+                                ac.dismiss();
+                            }
+                            Input {
+                                key: Key::Tab | Key::Enter,
+                                ..
+                            } if ac.visible => {
+                                if let Some(word) = ac.selected() {
+                                    let word = word.to_string();
+                                    let partial = current_word(&textarea);
+                                    for _ in 0..partial.chars().count() {
+                                        textarea.delete_char();
+                                    }
+                                    textarea.insert_str(&word);
+                                    ac.dismiss();
+                                }
+                            }
+
                             // Select all
                             Input {
                                 key: Key::Char('a'),
@@ -169,6 +233,8 @@ fn main() -> std::io::Result<()> {
                             // Everything else: arrows, backspace, typing, Ctrl+F/B, Home/End, etc.
                             input => {
                                 textarea.input_without_shortcuts(input);
+                                let word = current_word(&textarea); // ← ADD THESE TWO LINES
+                                ac.update(&word); // ← ADD THESE TWO LINES
                             }
                         }
                     }
