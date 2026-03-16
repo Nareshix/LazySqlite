@@ -54,8 +54,8 @@ fn main() -> std::io::Result<()> {
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(65), // big left box
-                    Constraint::Percentage(35), // right column
+                    Constraint::Percentage(25), // big left box
+                    Constraint::Percentage(75), // right column
                 ])
                 .split(area);
 
@@ -63,8 +63,8 @@ fn main() -> std::io::Result<()> {
             let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Percentage(50), // box 1
-                    Constraint::Percentage(50), // box 2
+                    Constraint::Percentage(40), // box 1
+                    Constraint::Percentage(60), // box 2
                 ])
                 .split(cols[1]);
 
@@ -73,7 +73,7 @@ fn main() -> std::io::Result<()> {
             let normal = Style::default().fg(Color::Gray);
 
             let box1 = Block::default()
-                .title(" Box 1 ")
+                // .title(" Box 1 ")
                 .borders(Borders::ALL)
                 .border_style(if focus == Focus::Box1 {
                     focused
@@ -98,7 +98,7 @@ fn main() -> std::io::Result<()> {
             );
 
             let box3 = Block::default()
-                .title(" Box 3 ")
+                // .title(" Box 3 ")
                 .borders(Borders::ALL)
                 .border_style(if focus == Focus::Box3 {
                     focused
@@ -239,9 +239,29 @@ fn main() -> std::io::Result<()> {
                             }
                             // Everything else: arrows, backspace, typing, Ctrl+F/B, Home/End, etc.
                             input => {
-                                textarea.input_without_shortcuts(input);
-                                let word = current_word(&textarea); // ← ADD THESE TWO LINES
-                                ac.update(&word); // ← ADD THESE TWO LINES
+                                match input {
+                                    // Navigation — use full input() so arrows, ctrl+arrows, home/end all work
+                                    Input {
+                                        key: Key::Up | Key::Down | Key::Left | Key::Right,
+                                        ..
+                                    }
+                                    | Input {
+                                        key: Key::Home | Key::End,
+                                        ..
+                                    }
+                                    | Input {
+                                        key: Key::PageUp | Key::PageDown,
+                                        ..
+                                    } => {
+                                        textarea.input(input);
+                                    }
+                                    // Typing — use input_without_shortcuts to avoid emacs conflicts
+                                    _ => {
+                                        textarea.input_without_shortcuts(input);
+                                        let word = current_word(&textarea);
+                                        ac.update(&word);
+                                    }
+                                }
                             }
                         }
                     }
