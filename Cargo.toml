@@ -7,5 +7,6 @@ edition = "2024"
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 # anyhow = "1.0.102"
 lazysql = "0.4.0"
+nucleo-matcher = "0.3.1"
 ratatui = "0.30.0"
 ratatui-textarea = "0.8.0"
