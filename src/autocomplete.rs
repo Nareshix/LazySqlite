@@ -4,8 +4,7 @@ use nucleo_matcher::{
 };
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::ListState,
 };
 use ratatui_textarea::TextArea;
 

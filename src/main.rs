@@ -5,7 +5,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, List, ListItem},
 };
-use ratatui_textarea::{CursorMove, Input, Key, TextArea};
+use ratatui_textarea::{Input, Key, TextArea};
 mod autocomplete;
 use autocomplete::{Autocomplete, current_word, popup_rect};
 
