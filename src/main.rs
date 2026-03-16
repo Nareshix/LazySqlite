@@ -1,9 +1,11 @@
+use arboard::Clipboard;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     widgets::{Block, Borders},
 };
+use ratatui_textarea::{CursorMove, Input, Key, TextArea};
 
 #[derive(PartialEq)]
 enum Focus {
@@ -25,6 +27,10 @@ impl Focus {
 fn main() -> std::io::Result<()> {
     let mut terminal = ratatui::init();
     let mut focus = Focus::Box1;
+
+    let mut textarea = TextArea::default();
+    textarea.set_block(Block::default().title(" Box 2 ").borders(Borders::ALL));
+    let mut clipboard = Clipboard::new().unwrap();
 
     loop {
         terminal.draw(|frame| {
@@ -61,14 +67,16 @@ fn main() -> std::io::Result<()> {
                     normal
                 });
 
-            let box2 = Block::default()
-                .title(" Box 2 ")
-                .borders(Borders::ALL)
-                .border_style(if focus == Focus::Box2 {
-                    focused
-                } else {
-                    normal
-                });
+            textarea.set_block(
+                Block::default()
+                    .title(" Box 2 ")
+                    .borders(Borders::ALL)
+                    .border_style(if focus == Focus::Box2 {
+                        focused
+                    } else {
+                        normal
+                    }),
+            );
 
             let box3 = Block::default()
                 .title(" Box 3 ")
@@ -79,18 +87,94 @@ fn main() -> std::io::Result<()> {
                     normal
                 });
             frame.render_widget(box1, cols[0]); // big box on left
-            frame.render_widget(box2, rows[0]); // small top-right
-            frame.render_widget(box3, rows[1]); // small bottom-right
+            frame.render_widget(&textarea, rows[0]); // top-right, textarea
+            frame.render_widget(box3, rows[1]); // bottom-right
         })?;
 
         if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Tab => focus = focus.next(),
-                    KeyCode::Char('q') => break,
-                    _ => {}
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Tab => {
+                    focus = focus.next();
+                }
+                KeyCode::Char('q') if focus != Focus::Box2 => break,
+                _ => {
+                    if focus == Focus::Box2 {
+                        match Input::from(key) {
+                            // Select all
+                            Input {
+                                key: Key::Char('a'),
+                                ctrl: true,
+                                ..
+                            } => {
+                                textarea.select_all();
+                            }
+                            // Undo
+                            Input {
+                                key: Key::Char('z'),
+                                ctrl: true,
+                                shift: false,
+                                ..
+                            } => {
+                                textarea.undo();
+                            }
+                            // Redo (Ctrl+Shift+Z or Ctrl+Y)
+                            Input {
+                                key: Key::Char('z'),
+                                ctrl: true,
+                                shift: true,
+                                ..
+                            }
+                            | Input {
+                                key: Key::Char('y'),
+                                ctrl: true,
+                                ..
+                            } => {
+                                textarea.redo();
+                            }
+                            // Copy → system clipboard
+                            Input {
+                                key: Key::Char('c'),
+                                ctrl: true,
+                                ..
+                            } => {
+                                textarea.copy();
+                                if !textarea.yank_text().is_empty() {
+                                    clipboard.set_text(textarea.yank_text()).ok();
+                                }
+                            }
+                            // Cut → system clipboard
+                            Input {
+                                key: Key::Char('x'),
+                                ctrl: true,
+                                ..
+                            } => {
+                                textarea.cut();
+                                if !textarea.yank_text().is_empty() {
+                                    clipboard.set_text(textarea.yank_text()).ok();
+                                }
+                            }
+                            // Paste ← system clipboard (override Ctrl+V = PageDown)
+                            Input {
+                                key: Key::Char('v'),
+                                ctrl: true,
+                                ..
+                            } => {
+                                if let Ok(text) = clipboard.get_text() {
+                                    textarea.set_yank_text(text);
+                                    textarea.paste();
+                                }
+                            }
+                            // Everything else: arrows, backspace, typing, Ctrl+F/B, Home/End, etc.
+                            input => {
+                                textarea.input_without_shortcuts(input);
+                            }
+                        }
+                    }
                 }
             }
+        }
     }
 
     ratatui::restore();
