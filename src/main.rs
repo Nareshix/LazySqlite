@@ -1,6 +1,5 @@
 use ratatui::{
-    DefaultTerminal,
-    crossterm::event::{self, Event, KeyCode},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     widgets::{Block, Borders},
@@ -50,48 +49,48 @@ fn main() -> std::io::Result<()> {
                 .split(cols[1]);
 
             // highlight border if focused
-            let focused_style = Style::default().fg(Color::Yellow);
-            let normal_style = Style::default().fg(Color::White);
+            let focused = Style::default().fg(Color::Blue);
+            let normal = Style::default().fg(Color::Gray);
 
             let box1 = Block::default()
                 .title(" Box 1 ")
                 .borders(Borders::ALL)
                 .border_style(if focus == Focus::Box1 {
-                    focused_style
+                    focused
                 } else {
-                    normal_style
+                    normal
                 });
 
             let box2 = Block::default()
                 .title(" Box 2 ")
                 .borders(Borders::ALL)
                 .border_style(if focus == Focus::Box2 {
-                    focused_style
+                    focused
                 } else {
-                    normal_style
+                    normal
                 });
 
             let box3 = Block::default()
                 .title(" Box 3 ")
                 .borders(Borders::ALL)
                 .border_style(if focus == Focus::Box3 {
-                    focused_style
+                    focused
                 } else {
-                    normal_style
+                    normal
                 });
-
             frame.render_widget(box1, cols[0]); // big box on left
             frame.render_widget(box2, rows[0]); // small top-right
             frame.render_widget(box3, rows[1]); // small bottom-right
         })?;
 
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Tab => focus = focus.next(),
-                KeyCode::Char('q') => break,
-                _ => {}
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press {
+                match key.code {
+                    KeyCode::Tab => focus = focus.next(),
+                    KeyCode::Char('q') => break,
+                    _ => {}
+                }
             }
-        }
     }
 
     ratatui::restore();
