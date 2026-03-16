@@ -6,7 +6,6 @@ version = 4
 name = "LazySqlite"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "lazysql",
  "ratatui",
  "ratatui-textarea",
