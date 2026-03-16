@@ -45,6 +45,7 @@ fn main() -> std::io::Result<()> {
         "ALTER".into(),
         "INDEX".into(),
     ]);
+    let mut copied_at: Option<std::time::Instant> = None;
     loop {
         terminal.draw(|frame| {
             let area = frame.area();
@@ -80,9 +81,14 @@ fn main() -> std::io::Result<()> {
                     normal
                 });
 
+            let title = match copied_at {
+                Some(t) if t.elapsed().as_secs() < 1 => " Copied! ✓ ",
+                _ => " Box 2 ",
+            };
+
             textarea.set_block(
                 Block::default()
-                    .title(" Box 2 ")
+                    .title(title)
                     .borders(Borders::ALL)
                     .border_style(if focus == Focus::Box2 {
                         focused
@@ -206,6 +212,7 @@ fn main() -> std::io::Result<()> {
                                 textarea.copy();
                                 if !textarea.yank_text().is_empty() {
                                     clipboard.set_text(textarea.yank_text()).ok();
+                                    copied_at = Some(std::time::Instant::now()); // ← add this
                                 }
                             }
                             // Cut → system clipboard
