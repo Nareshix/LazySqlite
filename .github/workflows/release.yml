@@ -1,52 +1,40 @@
-# .github/workflows/release.yml
-
 name: Release lazysqlite
 
-# This workflow is triggered when a new tag is pushed that matches the pattern 'v*.*.*'.
-# This is ideal for version tags like v0.1.0, v1.2.3, etc.
 on:
   push:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: write
+
 jobs:
-  # Job 1: Create the GitHub Release entry.
-  # This runs first so that the build jobs have a place to upload their artifacts.
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      # The release's upload URL is passed to the next jobs.
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          # This creates a "stable" release. Set to true for pre-releases.
           prerelease: false
+          # The token is automatically provided, but now has permission
+          generate_release_notes: true
 
-  # Job 2: Build binaries for multiple platforms and upload them.
-  # This job will run in parallel for each platform defined in the 'matrix'.
   build-and-upload-assets:
     name: Build and Upload Assets
-    # This job depends on 'create-release' completing successfully.
     needs: create-release
     strategy:
       matrix:
         include:
-          # Target for Linux (GNU)
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-
-          # Target for macOS
           - target: x86_64-apple-darwin
             os: macos-latest
-
-          # Target for Windows (MSVC)
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -56,45 +44,30 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          # Install the target for cross-compilation.
           target: ${{ matrix.target }}
 
       - name: Build binary
         run: cargo build --verbose --release --target ${{ matrix.target }}
 
-      # This step packages the final executable into a compressed archive.
       - name: Package binary for release
-        id: package # Give this step an ID to reference its outputs
+        id: package
         shell: bash
         run: |
-          # The name of your binary inside the Cargo.toml.
-          ### IMPORTANT: This is the name of the file that Rust creates. ###
           BINARY_NAME="lazysqlite"
-
-          # Determine the source path and final asset name based on the OS.
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             SOURCE_PATH="target/${{ matrix.target }}/release/${BINARY_NAME}.exe"
             ASSET_NAME="${BINARY_NAME}-${{ matrix.target }}.zip"
-            # Use 7-Zip for Windows archives.
-            7z a $ASSET_NAME $SOURCE_PATH
+            7z a $ASSET_NAME ./$SOURCE_PATH
           else
             SOURCE_PATH="target/${{ matrix.target }}/release/${BINARY_NAME}"
             ASSET_NAME="${BINARY_NAME}-${{ matrix.target }}.tar.gz"
-            # Use tar for Linux/macOS archives.
-            tar -czvf $ASSET_NAME $SOURCE_PATH
+            tar -czvf $ASSET_NAME -C $(dirname $SOURCE_PATH) $(basename $SOURCE_PATH)
           fi
-
-          # Use a step output to pass the calculated asset name to the next step.
           echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
 
-      # This step uploads the packaged archive to the GitHub Release.
+      # NOTE: actions/upload-release-asset is deprecated.
+      # It is better to use softprops/action-gh-release here as well.
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
+        uses: softprops/action-gh-release@v2
         with:
-          # Get the upload URL from the 'create-release' job.
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          # Set the path to the file to upload.
-          asset_path: ./${{ steps.package.outputs.asset_name }}
-          # Set the name of the asset in the release.
-          asset_name: ${{ steps.package.outputs.asset_name }}
-          asset_content_type: application/octet-stream
+          files: ${{ steps.package.outputs.asset_name }}
