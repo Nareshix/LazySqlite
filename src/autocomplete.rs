@@ -8,8 +8,6 @@ use ratatui::{
 };
 use ratatui_textarea::TextArea;
 
-// ── Autocomplete state ──────────────────────────────────────────────────────
-
 pub struct Autocomplete {
     pub words:   Vec<String>,
     pub matches: Vec<String>,
@@ -26,6 +24,15 @@ impl Autocomplete {
             state:   ListState::default(),
             visible: false,
             matcher: Matcher::new(Config::DEFAULT),
+        }
+    }
+
+    /// Add extra words (e.g. table names fetched from the DB) without duplicates.
+    pub fn add_words(&mut self, extra: Vec<String>) {
+        for w in extra {
+            if !self.words.contains(&w) {
+                self.words.push(w);
+            }
         }
     }
 
@@ -51,10 +58,10 @@ impl Autocomplete {
         self.matches = scored.into_iter().map(|(_, w)| w).collect();
 
         if self.matches.is_empty() {
-            self.dismiss();
+        self.dismiss();
         } else {
             self.visible = true;
-            self.state.select(Some(0)); // always reset to top on new query
+            self.state.select(Some(0));
         }
     }
 
@@ -82,8 +89,7 @@ impl Autocomplete {
     }
 }
 
-// ── Helper: get the word currently being typed ──────────────────────────────
-
+// Returns the word currently being typed at the cursor position.
 pub fn current_word(textarea: &TextArea) -> String {
     let (row, col) = textarea.cursor();
     let line = &textarea.lines()[row];
@@ -95,24 +101,37 @@ pub fn current_word(textarea: &TextArea) -> String {
     chars[start..col].iter().collect()
 }
 
-// ── Helper: popup Rect positioned near the cursor ───────────────────────────
-
-pub fn popup_rect(textarea_area: Rect, row: usize, col: usize) -> Rect {
+// Returns a Rect for the autocomplete popup near the cursor.
+//
+// textarea_area : the editor pane rect  (cursor-relative positioning)
+// frame_area    : the full terminal rect (hard-clamp so we NEVER exceed
+//                 buffer bounds, which would cause a ratatui panic on resize)
+pub fn popup_rect(textarea_area: Rect, frame_area: Rect, row: usize, col: usize) -> Rect {
     const W: u16 = 30;
     const H: u16 = 8;
+    const GAP: u16 = 3; // rows of breathing room between cursor and popup top
 
-    // +1 for top border of textarea
-    let mut x = textarea_area.x + 1 + col as u16;
-    let mut y = textarea_area.y + 1 + row as u16 + 1; // appear below cursor line
-
-    // clamp so popup doesn't go off screen
-    if x + W > textarea_area.right() {
-        x = textarea_area.right().saturating_sub(W);
-    }
-    if y + H > textarea_area.bottom() {
-        // show above cursor instead
-        y = (textarea_area.y + 1 + row as u16).saturating_sub(H);
+    // Terminal too tiny to show anything useful.
+    if frame_area.width == 0 || frame_area.height == 0 {
+        return Rect::default();
     }
 
-    Rect { x, y, width: W, height: H }
+    let cursor_screen_y = textarea_area.y.saturating_add(1).saturating_add(row as u16);
+    let mut x = textarea_area.x.saturating_add(1).saturating_add(col as u16);
+    let mut y = cursor_screen_y.saturating_add(1).saturating_add(GAP);
+
+    // Prefer showing below; flip above when there is not enough room in
+    // the FULL terminal (not just the editor pane — that was the old bug).
+    if y.saturating_add(H) > frame_area.bottom() {
+        y = cursor_screen_y.saturating_sub(H.saturating_add(GAP));
+    }
+
+    // Hard-clamp: popup must ALWAYS be fully inside the terminal buffer.
+    // Without this, shrinking the window triggers an out-of-bounds panic.
+    let width  = W.min(frame_area.width);
+    let height = H.min(frame_area.height);
+    x = x.min(frame_area.right().saturating_sub(width));
+    y = y.min(frame_area.bottom().saturating_sub(height));
+
+    Rect { x, y, width, height }
 }
