@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState},
+    widgets::{Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState},
 };
 use ratatui_textarea::{CursorMove, Input, Key, TextArea};
 use syntect::easy::HighlightLines;
@@ -57,6 +57,9 @@ struct Model {
     cursor_visible:   bool,
     last_blink:       std::time::Instant,
     terminal_focused: bool,
+
+    dirty:        bool,   // editor has unsaved changes
+    quit_confirm: bool,   // showing "discard changes?" dialog
 }
 
 impl Model {
@@ -84,6 +87,8 @@ impl Model {
             sidebar_rect: (0,0,0,0), editor_rect: (0,0,0,0), results_rect: (0,0,0,0),
             cursor_visible: true, last_blink: std::time::Instant::now(),
             terminal_focused: true,
+            dirty: false,
+            quit_confirm: false,
         }
     }
 
@@ -168,6 +173,18 @@ fn highlight_sql(
     out
 }
 
+// Returns a centered Rect of the given fixed width/height within `r`.
+fn centered_fixed(width: u16, height: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    let x = r.x + r.width.saturating_sub(width) / 2;
+    let y = r.y + r.height.saturating_sub(height) / 2;
+    ratatui::layout::Rect {
+        x,
+        y,
+        width:  width.min(r.width),
+        height: height.min(r.height),
+    }
+}
+
 enum Msg {
     FocusNext, FocusPrev,
     Submit,
@@ -178,19 +195,33 @@ enum Msg {
     Editor(Input),
     MouseClick(u16, u16), MouseScrollUp, MouseScrollDown,
     DbResp(DbResponse),
+    // Quit flow
+    QuitRequest,    // Ctrl+Q pressed
+    ConfirmDiscard, // "Y" in the dialog — exit without saving
+    CancelQuit,     // "N" / Esc in the dialog — go back
     Quit,
 }
 
 fn key_to_msg(model: &Model, key: event::KeyEvent) -> Option<Msg> {
     use ratatui::crossterm::event::{KeyCode, KeyModifiers};
 
+    // ── Quit-confirmation dialog intercepts ALL keys ──────────────────────────
+    if model.quit_confirm {
+        return match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => Some(Msg::ConfirmDiscard),
+            _ => Some(Msg::CancelQuit),
+        };
+    }
+
     let ctrl  = key.modifiers.contains(KeyModifiers::CONTROL);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
+    // ── Global shortcuts ──────────────────────────────────────────────────────
     if ctrl {
         match key.code {
-            KeyCode::Tab     => return Some(Msg::FocusNext),
-            KeyCode::BackTab => return Some(Msg::FocusPrev),
+            KeyCode::Char('q')   => return Some(Msg::QuitRequest),
+            KeyCode::Tab         => return Some(Msg::FocusNext),
+            KeyCode::BackTab     => return Some(Msg::FocusPrev),
             KeyCode::Right if shift => return Some(Msg::WordSelectForward),
             KeyCode::Left  if shift => return Some(Msg::WordSelectBack),
             KeyCode::Right          => return Some(Msg::WordForward),
@@ -233,6 +264,19 @@ fn key_to_msg(model: &Model, key: event::KeyEvent) -> Option<Msg> {
 fn update(model: &mut Model, msg: Msg) -> bool {
     match msg {
         Msg::Quit => return false,
+
+        // ── Quit flow ─────────────────────────────────────────────────────────
+        Msg::QuitRequest => {
+            if model.dirty {
+                model.quit_confirm = true;
+            } else {
+                return false; // nothing changed — exit immediately
+            }
+        }
+        Msg::ConfirmDiscard => return false, // user chose to discard changes
+        Msg::CancelQuit => {
+            model.quit_confirm = false; // user changed their mind
+        }
 
         Msg::FocusNext => {
             model.focus = match model.focus {
@@ -335,7 +379,10 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::Undo      => { model.textarea.undo(); }
         Msg::Redo      => { model.textarea.redo(); }
         Msg::SelectAll => model.textarea.select_all(),
-        Msg::Editor(i) => { model.textarea.input(i); }
+        Msg::Editor(i) => {
+            model.textarea.input(i);
+            model.dirty = true;
+        }
 
         Msg::MouseClick(x, y) => {
             let (sx, sy, sw, sh) = model.sidebar_rect;
@@ -471,7 +518,9 @@ fn view(model: &mut Model, frame: &mut Frame) {
         model.editor_scroll = crow + 1 - inner_h;
     }
 
-    let ed_title = format!(" SQL  Ctrl+Enter  Ln {} Col {} ", crow + 1, ccol + 1);
+    // Show a ● dot in the title when there are unsaved changes
+    let dirty_marker = if model.dirty { " ●" } else { "" };
+    let ed_title = format!(" SQL{}  Ctrl+Enter  Ln {} Col {} ", dirty_marker, crow + 1, ccol + 1);
     let ed_block = Block::default()
         .title(ed_title)
         .borders(Borders::ALL)
@@ -479,9 +528,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
     frame.render_widget(ed_block, ed_area);
 
-    // Line number gutter — render manually so we know the exact width
-    // Gutter = "<n> " where n is the widest line number
-    let gutter_w = total_lines.to_string().len() as u16 + 1; // digits + 1 space
+    // Line number gutter
+    let gutter_w = total_lines.to_string().len() as u16 + 1;
     let gutter_rect = ratatui::layout::Rect {
         x: ed_area.x + 1,
         y: ed_area.y + 1,
@@ -497,7 +545,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .collect();
     frame.render_widget(Paragraph::new(line_nums), gutter_rect);
 
-    // Syntect-highlighted text — render in the inner text area
+    // Syntect-highlighted text
     let text_rect = ratatui::layout::Rect {
         x: ed_area.x + 1 + gutter_w,
         y: ed_area.y + 1,
@@ -518,7 +566,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         text_rect,
     );
 
-    // Cursor — bar style via set_cursor_position, only when focused and visible
+    // Cursor bar
     if model.focus == Focus::Editor && model.cursor_visible {
         let cx = text_rect.x + ccol as u16;
         let cy = text_rect.y + (crow - model.editor_scroll) as u16;
@@ -552,6 +600,35 @@ fn view(model: &mut Model, frame: &mut Frame) {
             .row_highlight_style(Style::default().bg(Color::Rgb(30, 30, 60)));
         frame.render_stateful_widget(table, right[1], &mut model.result_state);
     }
+
+    // ── Quit-confirmation modal ────────────────────────────────────────────────
+    if model.quit_confirm {
+        let popup = centered_fixed(46, 7, area);
+        frame.render_widget(Clear, popup);
+        let modal = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("You have unsaved changes.", Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("[Y]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw(" Discard and quit   "),
+                Span::styled("[any other key]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw(" Cancel"),
+            ]),
+            Line::from(""),
+        ])
+        .block(
+            Block::default()
+                .title(" Quit without saving? ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+        frame.render_widget(modal, popup);
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -560,7 +637,28 @@ fn main() -> std::io::Result<()> {
         KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
     }};
 
-    let conn = LazyConnection::open("viewer.db").expect("failed to open database");
+    let db_path = match std::env::args().nth(1) {
+        Some(path) => {
+            // Fail fast if the file exists but isn't a valid SQLite database.
+            // SQLite files start with the 16-byte magic header string.
+            if std::path::Path::new(&path).exists() {
+                let mut buf = [0u8; 16];
+                let ok = std::fs::File::open(&path)
+                    .and_then(|mut f| { use std::io::Read; f.read_exact(&mut buf) })
+                    .map(|_| buf.starts_with(b"SQLite format 3\0"))
+                    .unwrap_or(false);
+                if !ok {
+                    eprintln!("error: '{}' exists but is not a SQLite database", path);
+                    std::process::exit(1);
+                }
+            }
+            // File doesn't exist yet — LazyConnection will create it.
+            path
+        }
+        None => "viewer.db".to_string(), // default: create/open viewer.db
+    };
+
+    let conn = LazyConnection::open(&db_path).expect("failed to open database");
     let (cmd_tx, cmd_rx) = mpsc::channel::<DbCommand>();
     let (resp_tx, resp_rx) = mpsc::channel::<DbResponse>();
     let conn_bg = Arc::clone(&conn);

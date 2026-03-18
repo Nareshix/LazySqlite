@@ -44,13 +44,11 @@ pub fn db_thread(conn: Arc<LazyConnection>, rx: mpsc::Receiver<DbCommand>, tx: m
 
                 let mut schema = vec![];
                 for table in &tables {
-                    // FK list first so we can look up by column id
                     let fk_sql = format!("PRAGMA foreign_key_list({})", table);
                     let mut fk_map = std::collections::HashMap::new();
                     if let Ok(rows) = conn.query_dynamic(&fk_sql) {
                         for row in rows.filter_map(|r| r.ok()) {
                             let cells: Vec<String> = row.iter().map(|c| c.as_string()).collect();
-                            // columns: id, seq, table, from, to, ...
                             if cells.len() >= 5 {
                                 fk_map.insert(cells[3].clone(),
                                     format!("{}.{}", cells[2], cells[4]));
@@ -63,7 +61,6 @@ pub fn db_thread(conn: Arc<LazyConnection>, rx: mpsc::Receiver<DbCommand>, tx: m
                     if let Ok(rows) = conn.query_dynamic(&col_sql) {
                         for row in rows.filter_map(|r| r.ok()) {
                             let cells: Vec<String> = row.iter().map(|c| c.as_string()).collect();
-                            // cid, name, type, notnull, dflt_value, pk
                             if cells.len() >= 6 {
                                 let name  = cells[1].clone();
                                 let typ   = cells[2].clone();

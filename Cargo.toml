@@ -2,6 +2,14 @@
 name = "LazySqlite"
 version = "0.1.0"
 edition = "2024"
+description = "simple tui for sqlite"
+readme = "./README.md"
+homepage = "https://github.com/Nareshix/LazySqlite"
+repository = "https://github.com/Nareshix/LazySqlite"
+keywords = ["database", "sqlite", "sql", "ergonomic"]
+categories = ["database", "database-implementations", "embedded"]
+documentation = "https://docs.rs/lazysql/latest/lazysql"
+
 
 [dependencies]
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
@@ -10,6 +18,6 @@ lazysql = "0.4.0"
 nucleo-matcher = "0.3.1" # might remove
 ratatui = "0.30.0"
 ratatui-textarea = { version = "0.8.0", features = ["search"] }
-
 syntect     = { version = "5", default-features = false, features = ["default-fancy"] }
 syntect-tui = "3"
+
