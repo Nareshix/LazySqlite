@@ -9,7 +9,7 @@ repository = "https://github.com/Nareshix/LazySqlite"
 keywords = ["database", "sqlite", "sql", "ergonomic"]
 categories = ["database", "database-implementations", "embedded"]
 documentation = "https://docs.rs/lazysql/latest/lazysql"
-
+license = "MIT"
 
 [dependencies]
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
