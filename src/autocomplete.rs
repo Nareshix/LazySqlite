@@ -58,7 +58,7 @@ impl Autocomplete {
         self.matches = scored.into_iter().map(|(_, w)| w).collect();
 
         if self.matches.is_empty() {
-        self.dismiss();
+            self.dismiss();
         } else {
             self.visible = true;
             self.state.select(Some(0));
@@ -109,7 +109,7 @@ pub fn current_word(textarea: &TextArea) -> String {
 pub fn popup_rect(textarea_area: Rect, frame_area: Rect, row: usize, col: usize) -> Rect {
     const W: u16 = 30;
     const H: u16 = 8;
-    const GAP: u16 = 3; // rows of breathing room between cursor and popup top
+    const GAP: u16 = 1; // rows of breathing room between cursor and popup top
 
     // Terminal too tiny to show anything useful.
     if frame_area.width == 0 || frame_area.height == 0 {
