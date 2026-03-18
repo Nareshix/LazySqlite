@@ -10,3 +10,6 @@ lazysql = "0.4.0"
 nucleo-matcher = "0.3.1" # might remove
 ratatui = "0.30.0"
 ratatui-textarea = { version = "0.8.0", features = ["search"] }
+
+syntect     = { version = "5", default-features = false, features = ["default-fancy"] }
+syntect-tui = "3"
