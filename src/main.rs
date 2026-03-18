@@ -9,7 +9,9 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState},
+    widgets::{
+        Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState,
+    },
 };
 use ratatui_textarea::{CursorMove, Input, Key, TextArea};
 use syntect::easy::HighlightLines;
@@ -21,11 +23,15 @@ mod sqlite;
 use sqlite::{DbCommand, DbResponse, TableSchema, db_thread, is_query};
 
 #[derive(PartialEq)]
-enum Focus { Sidebar, Editor, Results }
+enum Focus {
+    Sidebar,
+    Editor,
+    Results,
+}
 
 struct Model {
-    focus:    Focus,
-    textarea: TextArea<'static>,  // input handling only — not rendered directly
+    focus: Focus,
+    textarea: TextArea<'static>, // input handling only — not rendered directly
     clipboard: Clipboard,
 
     // Editor scroll (we manage this ourselves so syntect overlay stays in sync)
@@ -33,33 +39,33 @@ struct Model {
 
     // Syntect — loaded once at startup
     syntax_set: SyntaxSet,
-    theme_set:  ThemeSet,
+    theme_set: ThemeSet,
 
-    cmd_tx:  mpsc::Sender<DbCommand>,
+    cmd_tx: mpsc::Sender<DbCommand>,
     resp_rx: mpsc::Receiver<DbResponse>,
 
-    columns:      Vec<String>,
-    rows:         Vec<Vec<String>>,
-    status:       String,
-    loading:      bool,
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    status: String,
+    loading: bool,
     result_state: TableState,
-    col_offset:   usize,
+    col_offset: usize,
 
-    schema:        Vec<TableSchema>,
+    schema: Vec<TableSchema>,
     sidebar_state: ListState,
     sidebar_items: Vec<String>,
 
     // Stored rects for mouse hit-testing
     sidebar_rect: (u16, u16, u16, u16),
-    editor_rect:  (u16, u16, u16, u16),
+    editor_rect: (u16, u16, u16, u16),
     results_rect: (u16, u16, u16, u16),
 
-    cursor_visible:   bool,
-    last_blink:       std::time::Instant,
+    cursor_visible: bool,
+    last_blink: std::time::Instant,
     terminal_focused: bool,
 
-    dirty:        bool,   // editor has unsaved changes
-    quit_confirm: bool,   // showing "discard changes?" dialog
+    dirty: bool,        // editor has unsaved changes
+    quit_confirm: bool, // showing "discard changes?" dialog
 }
 
 impl Model {
@@ -70,7 +76,7 @@ impl Model {
         textarea.set_cursor_line_style(Style::default());
 
         let syntax_set = SyntaxSet::load_defaults_newlines();
-        let theme_set  = ThemeSet::load_defaults();
+        let theme_set = ThemeSet::load_defaults();
 
         Self {
             focus: Focus::Editor,
@@ -79,13 +85,22 @@ impl Model {
             editor_scroll: 0,
             syntax_set,
             theme_set,
-            cmd_tx, resp_rx,
-            columns: vec![], rows: vec![],
-            status: "Ready".into(), loading: false,
-            result_state: TableState::default(), col_offset: 0,
-            schema: vec![], sidebar_state: ListState::default(), sidebar_items: vec![],
-            sidebar_rect: (0,0,0,0), editor_rect: (0,0,0,0), results_rect: (0,0,0,0),
-            cursor_visible: true, last_blink: std::time::Instant::now(),
+            cmd_tx,
+            resp_rx,
+            columns: vec![],
+            rows: vec![],
+            status: "Ready".into(),
+            loading: false,
+            result_state: TableState::default(),
+            col_offset: 0,
+            schema: vec![],
+            sidebar_state: ListState::default(),
+            sidebar_items: vec![],
+            sidebar_rect: (0, 0, 0, 0),
+            editor_rect: (0, 0, 0, 0),
+            results_rect: (0, 0, 0, 0),
+            cursor_visible: true,
+            last_blink: std::time::Instant::now(),
             terminal_focused: true,
             dirty: false,
             quit_confirm: false,
@@ -93,7 +108,10 @@ impl Model {
     }
 
     fn tick_blink(&mut self) {
-        if !self.terminal_focused { self.cursor_visible = false; return; }
+        if !self.terminal_focused {
+            self.cursor_visible = false;
+            return;
+        }
         if self.last_blink.elapsed().as_millis() >= 500 {
             self.cursor_visible = !self.cursor_visible;
             self.last_blink = std::time::Instant::now();
@@ -106,17 +124,32 @@ impl Model {
             self.sidebar_items.push(format!(" {}", t.name));
             for col in &t.columns {
                 let mut tag = String::new();
-                if col.pk { tag.push_str(" PK"); }
-                if let Some(fk) = &col.fk_to { tag.push_str(&format!(" FK→{}", fk)); }
-                let typ = if col.typ.is_empty() { "?".into() } else { col.typ.clone() };
-                self.sidebar_items.push(format!("   {} {}{}", col.name, typ.to_uppercase(), tag));
+                if col.pk {
+                    tag.push_str(" PK");
+                }
+                if let Some(fk) = &col.fk_to {
+                    tag.push_str(&format!(" FK→{}", fk));
+                }
+                let typ = if col.typ.is_empty() {
+                    "?".into()
+                } else {
+                    col.typ.clone()
+                };
+                self.sidebar_items
+                    .push(format!("   {} {}{}", col.name, typ.to_uppercase(), tag));
             }
         }
     }
 
     fn run_query(&mut self, sql: String) {
-        if self.loading { return; }
-        let cmd = if is_query(&sql) { DbCommand::Query(sql) } else { DbCommand::Execute(sql) };
+        if self.loading {
+            return;
+        }
+        let cmd = if is_query(&sql) {
+            DbCommand::Query(sql)
+        } else {
+            DbCommand::Execute(sql)
+        };
         self.cmd_tx.send(cmd).ok();
         self.loading = true;
         self.status = "Running…".into();
@@ -125,12 +158,21 @@ impl Model {
 }
 
 fn col_widths(columns: &[String], rows: &[Vec<String>], offset: usize) -> Vec<Constraint> {
-    columns[offset..].iter().enumerate().map(|(i, h)| {
-        let ai = i + offset;
-        let max = rows.iter().filter_map(|r| r.get(ai)).map(|s| s.len()).max().unwrap_or(0);
-        let w = (h.len().max(max).max(4) as u16).min(40);
-        Constraint::Min(w)
-    }).collect()
+    columns[offset..]
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            let ai = i + offset;
+            let max = rows
+                .iter()
+                .filter_map(|r| r.get(ai))
+                .map(|s| s.len())
+                .max()
+                .unwrap_or(0);
+            let w = (h.len().max(max).max(4) as u16).min(40);
+            Constraint::Min(w)
+        })
+        .collect()
 }
 
 // Convert syntect color to ratatui Color
@@ -140,11 +182,7 @@ fn syn_color(c: syntect::highlighting::Color) -> Color {
 
 // Highlight SQL text with syntect, returning ratatui Lines.
 // Falls back to plain text on any error so the editor never crashes.
-fn highlight_sql(
-    code: &str,
-    syntax_set: &SyntaxSet,
-    theme_set: &ThemeSet,
-) -> Vec<Line<'static>> {
+fn highlight_sql(code: &str, syntax_set: &SyntaxSet, theme_set: &ThemeSet) -> Vec<Line<'static>> {
     let syntax = syntax_set
         .find_syntax_by_name("SQL")
         .or_else(|| syntax_set.find_syntax_by_extension("sql"))
@@ -180,20 +218,33 @@ fn centered_fixed(width: u16, height: u16, r: ratatui::layout::Rect) -> ratatui:
     ratatui::layout::Rect {
         x,
         y,
-        width:  width.min(r.width),
+        width: width.min(r.width),
         height: height.min(r.height),
     }
 }
 
 enum Msg {
-    FocusNext, FocusPrev,
+    FocusNext,
+    FocusPrev,
     Submit,
-    Up, Down, Left, Right,
-    Copy, Cut, Paste,
-    Undo, Redo, SelectAll,
-    WordForward, WordBack, WordSelectForward, WordSelectBack,
+    Up,
+    Down,
+    Left,
+    Right,
+    Copy,
+    Cut,
+    Paste,
+    Undo,
+    Redo,
+    SelectAll,
+    WordForward,
+    WordBack,
+    WordSelectForward,
+    WordSelectBack,
     Editor(Input),
-    MouseClick(u16, u16), MouseScrollUp, MouseScrollDown,
+    MouseClick(u16, u16),
+    MouseScrollUp,
+    MouseScrollDown,
     DbResp(DbResponse),
     // Quit flow
     QuitRequest,    // Ctrl+Q pressed
@@ -213,19 +264,19 @@ fn key_to_msg(model: &Model, key: event::KeyEvent) -> Option<Msg> {
         };
     }
 
-    let ctrl  = key.modifiers.contains(KeyModifiers::CONTROL);
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
     // ── Global shortcuts ──────────────────────────────────────────────────────
     if ctrl {
         match key.code {
-            KeyCode::Char('q')   => return Some(Msg::QuitRequest),
-            KeyCode::Tab         => return Some(Msg::FocusNext),
-            KeyCode::BackTab     => return Some(Msg::FocusPrev),
+            KeyCode::Char('q') => return Some(Msg::QuitRequest),
+            KeyCode::Tab => return Some(Msg::FocusNext),
+            KeyCode::BackTab => return Some(Msg::FocusPrev),
             KeyCode::Right if shift => return Some(Msg::WordSelectForward),
-            KeyCode::Left  if shift => return Some(Msg::WordSelectBack),
-            KeyCode::Right          => return Some(Msg::WordForward),
-            KeyCode::Left           => return Some(Msg::WordBack),
+            KeyCode::Left if shift => return Some(Msg::WordSelectBack),
+            KeyCode::Right => return Some(Msg::WordForward),
+            KeyCode::Left => return Some(Msg::WordBack),
             _ => {}
         }
     }
@@ -234,28 +285,69 @@ fn key_to_msg(model: &Model, key: event::KeyEvent) -> Option<Msg> {
 
     match model.focus {
         Focus::Editor => match input {
-            Input { key: Key::Enter, ctrl: true, .. } => Some(Msg::Submit),
-            Input { key: Key::Char('a'), ctrl: true, .. } => Some(Msg::SelectAll),
-            Input { key: Key::Char('z'), ctrl: true, shift: false, .. } => Some(Msg::Undo),
-            Input { key: Key::Char('z'), ctrl: true, shift: true, .. } |
-            Input { key: Key::Char('y'), ctrl: true, .. } => Some(Msg::Redo),
-            Input { key: Key::Char('c'), ctrl: true, .. } => Some(Msg::Copy),
-            Input { key: Key::Char('x'), ctrl: true, .. } => Some(Msg::Cut),
-            Input { key: Key::Char('v'), ctrl: true, .. } => Some(Msg::Paste),
+            Input {
+                key: Key::Enter,
+                ctrl: true,
+                ..
+            } => Some(Msg::Submit),
+            Input {
+                key: Key::Char('a'),
+                ctrl: true,
+                ..
+            } => Some(Msg::SelectAll),
+            Input {
+                key: Key::Char('z'),
+                ctrl: true,
+                shift: false,
+                ..
+            } => Some(Msg::Undo),
+            Input {
+                key: Key::Char('z'),
+                ctrl: true,
+                shift: true,
+                ..
+            }
+            | Input {
+                key: Key::Char('y'),
+                ctrl: true,
+                ..
+            } => Some(Msg::Redo),
+            Input {
+                key: Key::Char('c'),
+                ctrl: true,
+                ..
+            } => Some(Msg::Copy),
+            Input {
+                key: Key::Char('x'),
+                ctrl: true,
+                ..
+            } => Some(Msg::Cut),
+            Input {
+                key: Key::Char('v'),
+                ctrl: true,
+                ..
+            } => Some(Msg::Paste),
             other => Some(Msg::Editor(other)),
         },
         Focus::Results => match input {
-            Input { key: Key::Up,    .. } => Some(Msg::Up),
-            Input { key: Key::Down,  .. } => Some(Msg::Down),
-            Input { key: Key::Left,  .. } => Some(Msg::Left),
-            Input { key: Key::Right, .. } => Some(Msg::Right),
+            Input { key: Key::Up, .. } => Some(Msg::Up),
+            Input { key: Key::Down, .. } => Some(Msg::Down),
+            Input { key: Key::Left, .. } => Some(Msg::Left),
+            Input {
+                key: Key::Right, ..
+            } => Some(Msg::Right),
             _ => None,
         },
         Focus::Sidebar => match input {
-            Input { key: Key::Up,    .. } => Some(Msg::Up),
-            Input { key: Key::Down,  .. } => Some(Msg::Down),
-            Input { key: Key::Enter, .. } => Some(Msg::Submit),
-            Input { key: Key::Char('q'), .. } => Some(Msg::Quit),
+            Input { key: Key::Up, .. } => Some(Msg::Up),
+            Input { key: Key::Down, .. } => Some(Msg::Down),
+            Input {
+                key: Key::Enter, ..
+            } => Some(Msg::Submit),
+            Input {
+                key: Key::Char('q'),
+                ..
+            } => Some(Msg::Quit),
             _ => None,
         },
     }
@@ -281,7 +373,7 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::FocusNext => {
             model.focus = match model.focus {
                 Focus::Sidebar => Focus::Editor,
-                Focus::Editor  => Focus::Results,
+                Focus::Editor => Focus::Results,
                 Focus::Results => Focus::Sidebar,
             };
             model.cursor_visible = true;
@@ -290,7 +382,7 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::FocusPrev => {
             model.focus = match model.focus {
                 Focus::Sidebar => Focus::Results,
-                Focus::Editor  => Focus::Sidebar,
+                Focus::Editor => Focus::Sidebar,
                 Focus::Results => Focus::Editor,
             };
             model.cursor_visible = true;
@@ -300,7 +392,9 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::Submit => match model.focus {
             Focus::Editor => {
                 let sql = model.textarea.lines().join("\n").trim().to_string();
-                if !sql.is_empty() { model.run_query(sql); }
+                if !sql.is_empty() {
+                    model.run_query(sql);
+                }
             }
             Focus::Sidebar => {
                 if let Some(sel) = model.sidebar_state.selected() {
@@ -317,12 +411,20 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::Up => match model.focus {
             Focus::Results => {
                 if !model.rows.is_empty() {
-                    let i = model.result_state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
+                    let i = model
+                        .result_state
+                        .selected()
+                        .map(|i| i.saturating_sub(1))
+                        .unwrap_or(0);
                     model.result_state.select(Some(i));
                 }
             }
             Focus::Sidebar => {
-                let i = model.sidebar_state.selected().map(|i| i.saturating_sub(1)).unwrap_or(0);
+                let i = model
+                    .sidebar_state
+                    .selected()
+                    .map(|i| i.saturating_sub(1))
+                    .unwrap_or(0);
                 model.sidebar_state.select(Some(i));
             }
             _ => {}
@@ -331,19 +433,33 @@ fn update(model: &mut Model, msg: Msg) -> bool {
             Focus::Results => {
                 if !model.rows.is_empty() {
                     let max = model.rows.len() - 1;
-                    let i = model.result_state.selected().map(|i| (i+1).min(max)).unwrap_or(0);
+                    let i = model
+                        .result_state
+                        .selected()
+                        .map(|i| (i + 1).min(max))
+                        .unwrap_or(0);
                     model.result_state.select(Some(i));
                 }
             }
             Focus::Sidebar => {
                 let max = model.sidebar_items.len().saturating_sub(1);
-                let i = model.sidebar_state.selected().map(|i| (i+1).min(max)).unwrap_or(0);
+                let i = model
+                    .sidebar_state
+                    .selected()
+                    .map(|i| (i + 1).min(max))
+                    .unwrap_or(0);
                 model.sidebar_state.select(Some(i));
             }
             _ => {}
         },
-        Msg::Left  => { model.col_offset = model.col_offset.saturating_sub(1); }
-        Msg::Right => { if model.col_offset + 1 < model.columns.len() { model.col_offset += 1; } }
+        Msg::Left => {
+            model.col_offset = model.col_offset.saturating_sub(1);
+        }
+        Msg::Right => {
+            if model.col_offset + 1 < model.columns.len() {
+                model.col_offset += 1;
+            }
+        }
 
         Msg::WordForward => {
             model.textarea.cancel_selection();
@@ -376,8 +492,12 @@ fn update(model: &mut Model, msg: Msg) -> bool {
                 model.textarea.paste();
             }
         }
-        Msg::Undo      => { model.textarea.undo(); }
-        Msg::Redo      => { model.textarea.redo(); }
+        Msg::Undo => {
+            model.textarea.undo();
+        }
+        Msg::Redo => {
+            model.textarea.redo();
+        }
         Msg::SelectAll => model.textarea.select_all(),
         Msg::Editor(i) => {
             model.textarea.input(i);
@@ -388,22 +508,28 @@ fn update(model: &mut Model, msg: Msg) -> bool {
             let (sx, sy, sw, sh) = model.sidebar_rect;
             let (ex, ey, ew, eh) = model.editor_rect;
             let (rx, ry, rw, rh) = model.results_rect;
-            if x >= sx && x < sx+sw && y >= sy && y < sy+sh {
+            if x >= sx && x < sx + sw && y >= sy && y < sy + sh {
                 model.focus = Focus::Sidebar;
-            } else if x >= ex && x < ex+ew && y >= ey && y < ey+eh {
+            } else if x >= ex && x < ex + ew && y >= ey && y < ey + eh {
                 model.focus = Focus::Editor;
-            } else if x >= rx && x < rx+rw && y >= ry && y < ry+rh {
+            } else if x >= rx && x < rx + rw && y >= ry && y < ry + rh {
                 model.focus = Focus::Results;
             }
         }
         Msg::MouseScrollUp => match model.focus {
-            Focus::Editor  => { model.editor_scroll = model.editor_scroll.saturating_sub(3); }
+            Focus::Editor => {
+                model.editor_scroll = model.editor_scroll.saturating_sub(3);
+            }
             Focus::Results => {
                 let i = model.result_state.selected().unwrap_or(0).saturating_sub(3);
                 model.result_state.select(Some(i));
             }
             Focus::Sidebar => {
-                let i = model.sidebar_state.selected().unwrap_or(0).saturating_sub(3);
+                let i = model
+                    .sidebar_state
+                    .selected()
+                    .unwrap_or(0)
+                    .saturating_sub(3);
                 model.sidebar_state.select(Some(i));
             }
         },
@@ -429,7 +555,11 @@ fn update(model: &mut Model, msg: Msg) -> bool {
         Msg::DbResp(resp) => {
             model.loading = false;
             match resp {
-                DbResponse::Rows { columns, rows, elapsed } => {
+                DbResponse::Rows {
+                    columns,
+                    rows,
+                    elapsed,
+                } => {
                     model.columns = columns;
                     model.rows = rows;
                     model.status = format!("{} rows  {:.2?}", model.rows.len(), elapsed);
@@ -437,7 +567,8 @@ fn update(model: &mut Model, msg: Msg) -> bool {
                     model.col_offset = 0;
                 }
                 DbResponse::RowsAffected(n, elapsed) => {
-                    model.columns = vec![]; model.rows = vec![];
+                    model.columns = vec![];
+                    model.rows = vec![];
                     model.status = format!("{} rows affected  {:.2?}", n, elapsed);
                 }
                 DbResponse::Schema(schema) => {
@@ -448,7 +579,8 @@ fn update(model: &mut Model, msg: Msg) -> bool {
                     }
                 }
                 DbResponse::Error(e) => {
-                    model.columns = vec![]; model.rows = vec![];
+                    model.columns = vec![];
+                    model.rows = vec![];
                     model.status = format!("Error: {}", e);
                 }
             }
@@ -469,35 +601,50 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .split(chunks[1]);
 
     model.sidebar_rect = (chunks[0].x, chunks[0].y, chunks[0].width, chunks[0].height);
-    model.editor_rect  = (right[0].x,  right[0].y,  right[0].width,  right[0].height);
-    model.results_rect = (right[1].x,  right[1].y,  right[1].width,  right[1].height);
+    model.editor_rect = (right[0].x, right[0].y, right[0].width, right[0].height);
+    model.results_rect = (right[1].x, right[1].y, right[1].width, right[1].height);
 
-    let focused   = Style::default().fg(Color::Blue);
+    let focused = Style::default().fg(Color::Blue);
     let unfocused = Style::default().fg(Color::DarkGray);
 
     // ── Sidebar ───────────────────────────────────────────────────────────────
-    let sb_style = if model.focus == Focus::Sidebar { focused } else { unfocused };
+    let sb_style = if model.focus == Focus::Sidebar {
+        focused
+    } else {
+        unfocused
+    };
     let sb_block = Block::default()
         .title(" Schema (Ctrl+Tab) ")
         .borders(Borders::ALL)
         .border_style(sb_style);
 
-    let items: Vec<ListItem> = model.sidebar_items.iter().map(|line| {
-        if line.starts_with("   ") {
-            let parts: Vec<&str> = line.trim().splitn(2, ' ').collect();
-            let (col_name, rest) = if parts.len() == 2 { (parts[0], parts[1]) } else { (line.trim(), "") };
-            ListItem::new(Line::from(vec![
-                Span::raw("   "),
-                Span::styled(col_name, Style::default().fg(Color::White)),
-                Span::raw(" "),
-                Span::styled(rest, Style::default().fg(Color::Rgb(120, 120, 160))),
-            ]))
-        } else {
-            ListItem::new(Line::from(vec![
-                Span::styled(line.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]))
-        }
-    }).collect();
+    let items: Vec<ListItem> = model
+        .sidebar_items
+        .iter()
+        .map(|line| {
+            if line.starts_with("   ") {
+                let parts: Vec<&str> = line.trim().splitn(2, ' ').collect();
+                let (col_name, rest) = if parts.len() == 2 {
+                    (parts[0], parts[1])
+                } else {
+                    (line.trim(), "")
+                };
+                ListItem::new(Line::from(vec![
+                    Span::raw("   "),
+                    Span::styled(col_name, Style::default().fg(Color::White)),
+                    Span::raw(" "),
+                    Span::styled(rest, Style::default().fg(Color::Rgb(120, 120, 160))),
+                ]))
+            } else {
+                ListItem::new(Line::from(vec![Span::styled(
+                    line.as_str(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )]))
+            }
+        })
+        .collect();
 
     let list = List::new(items)
         .block(sb_block)
@@ -505,8 +652,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
     frame.render_stateful_widget(list, chunks[0], &mut model.sidebar_state);
 
     // ── Editor ─────────────────────────────────────────────────────────────────
-    let ed_area  = right[0];
-    let ed_style = if model.focus == Focus::Editor { focused } else { unfocused };
+    let ed_area = right[0];
+    let ed_style = if model.focus == Focus::Editor {
+        focused
+    } else {
+        unfocused
+    };
     let (crow, ccol) = model.textarea.cursor();
     let total_lines = model.textarea.lines().len().max(1);
 
@@ -520,7 +671,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
 
     // Show a ● dot in the title when there are unsaved changes
     let dirty_marker = if model.dirty { " ●" } else { "" };
-    let ed_title = format!(" SQL{}  Ctrl+Enter  Ln {} Col {} ", dirty_marker, crow + 1, ccol + 1);
+    let ed_title = format!(
+        " SQL{}  Ctrl+Enter  Ln {} Col {} ",
+        dirty_marker,
+        crow + 1,
+        ccol + 1
+    );
     let ed_block = Block::default()
         .title(ed_title)
         .borders(Borders::ALL)
@@ -538,10 +694,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
     };
     let line_nums: Vec<Line> = (model.editor_scroll..model.editor_scroll + inner_h + 1)
         .take(total_lines)
-        .map(|n| Line::from(Span::styled(
-            format!("{:<width$} ", n + 1, width = gutter_w as usize - 1),
-            Style::default().fg(Color::Rgb(80, 80, 100)),
-        )))
+        .map(|n| {
+            Line::from(Span::styled(
+                format!("{:<width$} ", n + 1, width = gutter_w as usize - 1),
+                Style::default().fg(Color::Rgb(80, 80, 100)),
+            ))
+        })
         .collect();
     frame.render_widget(Paragraph::new(line_nums), gutter_rect);
 
@@ -561,10 +719,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
         .take(inner_h + 1)
         .collect();
 
-    frame.render_widget(
-        Paragraph::new(visible).scroll((0, 0)),
-        text_rect,
-    );
+    frame.render_widget(Paragraph::new(visible).scroll((0, 0)), text_rect);
 
     // Cursor bar
     if model.focus == Focus::Editor && model.cursor_visible {
@@ -576,10 +731,16 @@ fn view(model: &mut Model, frame: &mut Frame) {
     }
 
     // ── Results ────────────────────────────────────────────────────────────────
-    let rs_style = if model.focus == Focus::Results { focused } else { unfocused };
+    let rs_style = if model.focus == Focus::Results {
+        focused
+    } else {
+        unfocused
+    };
     let col_hint = if !model.columns.is_empty() {
         format!("  col {}/{}", model.col_offset + 1, model.columns.len())
-    } else { String::new() };
+    } else {
+        String::new()
+    };
     let rs_block = Block::default()
         .title(format!(" Results{}  {} ", col_hint, model.status))
         .borders(Borders::ALL)
@@ -590,13 +751,20 @@ fn view(model: &mut Model, frame: &mut Frame) {
     } else {
         let widths = col_widths(&model.columns, &model.rows, model.col_offset);
         let header = Row::new(model.columns[model.col_offset..].iter().map(|c| {
-            Cell::from(c.as_str()).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            Cell::from(c.as_str()).style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
         }));
-        let data: Vec<Row> = model.rows.iter().map(|r| {
-            Row::new(r[model.col_offset..].iter().map(|c| Cell::from(c.as_str())))
-        }).collect();
+        let data: Vec<Row> = model
+            .rows
+            .iter()
+            .map(|r| Row::new(r[model.col_offset..].iter().map(|c| Cell::from(c.as_str()))))
+            .collect();
         let table = Table::new(data, widths)
-            .header(header).block(rs_block)
+            .header(header)
+            .block(rs_block)
             .row_highlight_style(Style::default().bg(Color::Rgb(30, 30, 60)));
         frame.render_stateful_widget(table, right[1], &mut model.result_state);
     }
@@ -609,14 +777,25 @@ fn view(model: &mut Model, frame: &mut Frame) {
             Line::from(""),
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled("You have unsaved changes.", Style::default().fg(Color::White)),
+                Span::styled(
+                    "You have unsaved changes.",
+                    Style::default().fg(Color::White),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled("[Y]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Y]",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" Discard and quit   "),
-                Span::styled("[any other key]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[any other key]",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" Cancel"),
             ]),
             Line::from(""),
@@ -632,10 +811,13 @@ fn view(model: &mut Model, frame: &mut Frame) {
 }
 
 fn main() -> std::io::Result<()> {
-    use ratatui::crossterm::{execute, event::{
-        EnableFocusChange, DisableFocusChange, EnableMouseCapture, DisableMouseCapture,
-        KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-    }};
+    use ratatui::crossterm::{
+        event::{
+            DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
+            KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        },
+        execute,
+    };
 
     let db_path = match std::env::args().nth(1) {
         Some(path) => {
@@ -644,7 +826,10 @@ fn main() -> std::io::Result<()> {
             if std::path::Path::new(&path).exists() {
                 let mut buf = [0u8; 16];
                 let ok = std::fs::File::open(&path)
-                    .and_then(|mut f| { use std::io::Read; f.read_exact(&mut buf) })
+                    .and_then(|mut f| {
+                        use std::io::Read;
+                        f.read_exact(&mut buf)
+                    })
                     .map(|_| buf.starts_with(b"SQLite format 3\0"))
                     .unwrap_or(false);
                 if !ok {
@@ -655,7 +840,13 @@ fn main() -> std::io::Result<()> {
             // File doesn't exist yet — LazyConnection will create it.
             path
         }
-        None => "viewer.db".to_string(), // default: create/open viewer.db
+        None => {
+            eprintln!(
+                "usage: {} <database.db>",
+                std::env::args().next().unwrap_or_default()
+            );
+            std::process::exit(1);
+        }
     };
 
     let conn = LazyConnection::open(&db_path).expect("failed to open database");
@@ -666,13 +857,17 @@ fn main() -> std::io::Result<()> {
 
     let mut terminal = ratatui::init();
 
-    execute!(std::io::stdout(),
+    execute!(
+        std::io::stdout(),
         ratatui::crossterm::cursor::SetCursorStyle::BlinkingBar
-    ).ok();
+    )
+    .ok();
 
-    let kitty = execute!(std::io::stdout(),
+    let kitty = execute!(
+        std::io::stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    ).is_ok();
+    )
+    .is_ok();
     execute!(std::io::stdout(), EnableFocusChange).ok();
     execute!(std::io::stdout(), EnableMouseCapture).ok();
 
@@ -681,7 +876,9 @@ fn main() -> std::io::Result<()> {
 
     loop {
         while let Ok(r) = model.resp_rx.try_recv() {
-            if !update(&mut model, Msg::DbResp(r)) { break; }
+            if !update(&mut model, Msg::DbResp(r)) {
+                break;
+            }
         }
         model.tick_blink();
         terminal.draw(|f| view(&mut model, f))?;
@@ -690,23 +887,30 @@ fn main() -> std::io::Result<()> {
             match event::read()? {
                 Event::FocusGained => {
                     model.terminal_focused = true;
-                    model.cursor_visible   = true;
-                    model.last_blink       = std::time::Instant::now();
+                    model.cursor_visible = true;
+                    model.last_blink = std::time::Instant::now();
                 }
-                Event::FocusLost => { model.terminal_focused = false; }
+                Event::FocusLost => {
+                    model.terminal_focused = false;
+                }
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if let Some(msg) = key_to_msg(&model, key) {
-                        if !update(&mut model, msg) { break; }
-                    }
+                    if let Some(msg) = key_to_msg(&model, key)
+                        && !update(&mut model, msg) {
+                            break;
+                        }
                 }
                 Event::Mouse(me) => {
-                    use ratatui::crossterm::event::{MouseEventKind, MouseButton};
+                    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
                     match me.kind {
                         MouseEventKind::Down(MouseButton::Left) => {
                             update(&mut model, Msg::MouseClick(me.column, me.row));
                         }
-                        MouseEventKind::ScrollUp   => { update(&mut model, Msg::MouseScrollUp); }
-                        MouseEventKind::ScrollDown => { update(&mut model, Msg::MouseScrollDown); }
+                        MouseEventKind::ScrollUp => {
+                            update(&mut model, Msg::MouseScrollUp);
+                        }
+                        MouseEventKind::ScrollDown => {
+                            update(&mut model, Msg::MouseScrollDown);
+                        }
                         _ => {}
                     }
                 }
@@ -718,10 +922,14 @@ fn main() -> std::io::Result<()> {
     model.cmd_tx.send(DbCommand::Shutdown).ok();
     execute!(std::io::stdout(), DisableMouseCapture).ok();
     execute!(std::io::stdout(), DisableFocusChange).ok();
-    if kitty { execute!(std::io::stdout(), PopKeyboardEnhancementFlags).ok(); }
-    execute!(std::io::stdout(),
+    if kitty {
+        execute!(std::io::stdout(), PopKeyboardEnhancementFlags).ok();
+    }
+    execute!(
+        std::io::stdout(),
         ratatui::crossterm::cursor::SetCursorStyle::DefaultUserShape
-    ).ok();
+    )
+    .ok();
     ratatui::restore();
     Ok(())
 }
