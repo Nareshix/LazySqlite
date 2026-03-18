@@ -11,6 +11,11 @@ categories = ["database", "database-implementations", "embedded"]
 documentation = "https://docs.rs/lazysql/latest/lazysql"
 license = "MIT"
 
+
+[[bin]]
+name = "lazysqlite"
+path = "src/main.rs"
+
 [dependencies]
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 # anyhow = "1.0.102"

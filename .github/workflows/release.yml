@@ -1,14 +1,16 @@
-name: Release lazysqlite
+name: Release LazySqlite
 
 on:
   push:
     tags:
       - "v*.*.*"
 
+# Needed to fix the 403 "Resource not accessible" error
 permissions:
   contents: write
 
 jobs:
+  # Job 1: Create the GitHub Release
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -19,10 +21,12 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
+          # Sets the Title of the release to "LazySqlite v1.0.0"
+          name: LazySqlite ${{ github.ref_name }}
           prerelease: false
-          # The token is automatically provided, but now has permission
           generate_release_notes: true
 
+  # Job 2: Build and Upload Assets
   build-and-upload-assets:
     name: Build and Upload Assets
     needs: create-release
@@ -53,20 +57,28 @@ jobs:
         id: package
         shell: bash
         run: |
+          # The name of the binary file from your [[bin]] section in Cargo.toml
           BINARY_NAME="lazysqlite"
+
+          # The directory where cargo built the binary
+          TARGET_DIR="target/${{ matrix.target }}/release"
+
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            SOURCE_PATH="target/${{ matrix.target }}/release/${BINARY_NAME}.exe"
-            ASSET_NAME="${BINARY_NAME}-${{ matrix.target }}.zip"
-            7z a $ASSET_NAME ./$SOURCE_PATH
+            SOURCE_FILE="${BINARY_NAME}.exe"
+            ASSET_NAME="LazySqlite-${{ matrix.target }}.zip"
+            # Enter target dir and zip from there to avoid including deep folders in the zip
+            cd "$TARGET_DIR"
+            7z a "../../../${ASSET_NAME}" "${SOURCE_FILE}"
+            cd ../../../
           else
-            SOURCE_PATH="target/${{ matrix.target }}/release/${BINARY_NAME}"
-            ASSET_NAME="${BINARY_NAME}-${{ matrix.target }}.tar.gz"
-            tar -czvf $ASSET_NAME -C $(dirname $SOURCE_PATH) $(basename $SOURCE_PATH)
+            SOURCE_FILE="${BINARY_NAME}"
+            ASSET_NAME="LazySqlite-${{ matrix.target }}.tar.gz"
+            # -C changes directory so the tar only contains the file, not the 'target/...' path
+            tar -czvf "${ASSET_NAME}" -C "${TARGET_DIR}" "${SOURCE_FILE}"
           fi
+
           echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
 
-      # NOTE: actions/upload-release-asset is deprecated.
-      # It is better to use softprops/action-gh-release here as well.
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
