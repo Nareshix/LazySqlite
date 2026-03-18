@@ -1,6 +1,6 @@
 [package]
 name = "LazySqlite"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "simple tui for sqlite"
 readme = "./README.md"
